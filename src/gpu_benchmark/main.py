@@ -3,7 +3,10 @@ from .benchmarks import stable_diffusion_1_5, qwen3_0_6b
 from .database import upload_benchmark_results
 import argparse
 import torch 
-
+import csv
+import json
+import os
+import datetime
 # Import benchmark runners dynamically or add specific imports here later
 # For now, let's assume functions like run_stable_diffusion_benchmark, run_llm_benchmark
 # will be available from src.gpu_benchmark.benchmarks
@@ -23,6 +26,7 @@ def main():
         default="stable-diffusion-1-5",
         choices=["stable-diffusion-1-5", "qwen3-0-6b"]
     )
+    parser.add_argument('--output', type=str, help='Output json or csv file to save benchmark results', default=None)
     args = parser.parse_args()
     
     # If GPU device is specified, set it
@@ -89,7 +93,49 @@ def main():
             acceleration=results.get('acceleration'),
             torch_version=results.get('torch_version')
         )
-        
+        if args.output:
+            results_dict = {
+                "model_name": args.model,
+                "primary_metric_value": primary_metric_val,
+                "max_temp": max_temp_val,
+                "avg_temp": avg_temp_val,
+                "cloud_provider": provider,
+                "gpu_power_watts": results.get('gpu_power_watts'),
+                "gpu_memory_total": gpu_memory_val,
+                "platform": results.get('platform'),
+                "acceleration": results.get('acceleration'),
+                "torch_version": results.get('torch_version'),
+                "gpu": args.gpu if args.gpu is not None else 'default',
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+            
+            # check if csv or json
+            if args.output.endswith(".json"):
+                if os.path.isfile(args.output):
+                    try:
+                        with open(args.output, 'r') as f:
+                            data = json.load(f)
+                        if not isinstance(data, list):
+                            data = [data]
+                    except json.JSONDecodeError:
+                        data = []
+                else:
+                    data = []
+                data.append(results_dict)
+                with open(args.output, 'w') as f:
+                    json.dump(data, f, indent=2)
+            elif args.output.endswith(".csv"):
+                file_exists = os.path.isfile(args.output)
+                # Append if exists, otherwise create and write header
+                with open(args.output, 'a', newline='') as f:
+                    writer = csv.DictWriter(f, fieldnames=results_dict.keys())
+                    if not file_exists:
+                        writer.writeheader()
+                    writer.writerow(results_dict)
+            else:
+                print(f"Unsupported file format for output: {args.output}")
+            print(results_dict)
+
         print("Benchmark completed") # Final confirmation message
     elif results and results.get("error"):
         print(f"\nBenchmark failed: {results.get('error')}")
